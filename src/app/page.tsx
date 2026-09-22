@@ -4,7 +4,6 @@ import React, { useState, useEffect } from "react";
 import {
   Send,
   BookOpen,
-  FileCheck,
   HelpCircle,
   Copy,
   Check,
@@ -18,49 +17,61 @@ import {
   Clock,
   Sparkles,
   RefreshCw,
+  MessageSquareText,
+  History,
+  Tag,
 } from "lucide-react";
 
-interface CSResult {
+interface CaseReference {
+  id: string;
+  date: string;
+  category: string;
+  subCategory?: string;
+  question: string;
   answer: string;
-  manual: string[];
+}
+
+interface DualCSResult {
+  guideline_answer: string;
   source_pages: number[];
   section: string;
-  evidence: string;
-  contact?: string;
+  guideline_evidence: string;
+  case_answer: string;
+  case_references: CaseReference[];
+  contact: string;
 }
 
 interface MessageHistory {
   question: string;
-  result: CSResult;
+  result: DualCSResult;
   timestamp: string;
 }
 
 const SAMPLE_QUESTIONS = [
   "군 휴학을 하려고 하는데 장학금 반환해야 하나요?",
+  "제2저자로 논문 쓸 때도 현대차 정몽구 재단 사사 표기 해야 하나요?",
   "해외 학술대회 구두발표 시 항공비와 숙박비는 얼마까지 지원되나요?",
+  "영문 장학금 수혜증명서 발급받으려면 어떻게 해야 하나요?",
   "교환학생 파견 시 장학금은 유지되나요? 네트워킹은 어떻게 대체하나요?",
   "타 재단 장학금이나 교내 장학금과 중복 수혜 가능한가요?",
-  "글로벌 우수 장학금 Level 1 기준과 지원 금액은 어떻게 되나요?",
-  "대학원 석박사 통합과정에서 석사로 중도 전환하면 어떻게 처리되나요?",
 ];
 
 export default function Home() {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
-  const [currentResult, setCurrentResult] = useState<CSResult | null>(null);
+  const [currentResult, setCurrentResult] = useState<DualCSResult | null>(null);
   const [history, setHistory] = useState<MessageHistory[]>([]);
   const [apiKey, setApiKey] = useState("");
   const [showKeyModal, setShowKeyModal] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedGuideline, setCopiedGuideline] = useState(false);
+  const [copiedCase, setCopiedCase] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
+  const [showReferences, setShowReferences] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // 로컬 스토리지에서 API 키 불러오기
   useEffect(() => {
     const saved = localStorage.getItem("cmk_gemini_api_key");
-    if (saved) {
-      setApiKey(saved);
-    }
+    if (saved) setApiKey(saved);
   }, []);
 
   const saveApiKey = (key: string) => {
@@ -76,6 +87,7 @@ export default function Home() {
     setLoading(true);
     setErrorMsg(null);
     setShowEvidence(false);
+    setShowReferences(false);
 
     try {
       const res = await fetch("/api/chat", {
@@ -112,10 +124,15 @@ export default function Home() {
     }
   };
 
-  const handleCopyAnswer = (text: string) => {
+  const copyToClipboard = (text: string, isGuideline: boolean) => {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (isGuideline) {
+      setCopiedGuideline(true);
+      setTimeout(() => setCopiedGuideline(false), 2000);
+    } else {
+      setCopiedCase(true);
+      setTimeout(() => setCopiedCase(false), 2000);
+    }
   };
 
   return (
@@ -133,7 +150,7 @@ export default function Home() {
               </h1>
               <div className="flex items-center space-x-2 text-xs text-slate-500">
                 <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-medium border border-blue-200">
-                  2026년 7월 개정 가이드라인 (31p 완벽 반영)
+                  규정집(31p) + 실제 상담 DB(1,620건) 듀얼 연동
                 </span>
               </div>
             </div>
@@ -145,7 +162,7 @@ export default function Home() {
               className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
             >
               <Key className="w-3.5 h-3.5" />
-              <span>{apiKey ? "사용자 키 등록됨" : "API 자동 연결됨"}</span>
+              <span>{apiKey ? "사용자 키 적용됨" : "API 자동 연결됨"}</span>
             </button>
 
             <a
@@ -161,7 +178,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* 메인 컨텐츠 영역 */}
+      {/* 메인 영역 */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col gap-6">
         {/* 질문 입력 박스 */}
         <section className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-slate-200">
@@ -179,7 +196,7 @@ export default function Home() {
                   handleAsk();
                 }
               }}
-              placeholder="예: 군 휴학 시 장학금은 어떻게 처리되며 복학하면 다시 받을 수 있나요?"
+              placeholder="예: 제2저자로 작성한 논문에도 재단 사사 표기를 필수로 해야 하나요?"
               className="w-full rounded-xl border border-slate-300 p-3.5 pr-28 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0A2F6E] focus:border-transparent text-sm resize-none"
             />
             <button
@@ -201,7 +218,7 @@ export default function Home() {
             </button>
           </div>
 
-          {/* 자주 묻는 질문 퀵 칩 */}
+          {/* 자주 묻는 질문 빠른 선택 */}
           <div className="mt-4 pt-3 border-t border-slate-100">
             <div className="text-xs text-slate-500 font-medium mb-2 flex items-center gap-1">
               <Sparkles className="w-3.5 h-3.5 text-blue-600" />
@@ -224,7 +241,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* 에러 메시지 알림 */}
+        {/* 에러 알림 */}
         {errorMsg && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-3 text-red-800 text-sm">
             <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
@@ -235,21 +252,21 @@ export default function Home() {
           </div>
         )}
 
-        {/* 결과 카드 */}
+        {/* 결과 카드 영역: 듀얼 답변 분리 제시 */}
         {currentResult && (
-          <div className="flex flex-col gap-5 animate-in fade-in duration-300">
-            {/* 상단 메타 바: 출처 페이지 및 해당 섹션 */}
-            <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-2xl p-4 sm:p-5 shadow flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+            {/* 상단 규정 근거 메타바 */}
+            <div className="bg-[#0A2F6E] text-white rounded-2xl p-4 sm:p-5 shadow flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="text-xs uppercase tracking-wider text-blue-200 font-semibold">
-                  가이드라인 규정 근거
+                  가이드라인 규정 분류
                 </span>
                 <h3 className="text-lg font-bold text-white mt-0.5">
                   {currentResult.section}
                 </h3>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-blue-200">명시 페이지:</span>
+                <span className="text-xs text-blue-200">규정집 명시:</span>
                 <div className="flex gap-1.5">
                   {currentResult.source_pages.map((p, i) => (
                     <span
@@ -263,22 +280,24 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 3단 분할 레이아웃: 답변 / 매뉴얼 / 원문 */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {/* 1. 고객 응대용 답변 카드 */}
-              <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-slate-200 flex flex-col">
-                <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+            {/* 2단 분할 레이아웃: 가이드라인 기반 답변 vs 실제 상담 사례 기반 답변 */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* 좌측 카드: 📘 가이드라인 규정 기반 답변 */}
+              <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-blue-200 flex flex-col">
+                <div className="flex items-center justify-between mb-3 pb-3 border-b border-blue-100">
                   <div className="flex items-center space-x-2 text-[#0A2F6E]">
-                    <HelpCircle className="w-5 h-5" />
+                    <BookOpen className="w-5 h-5" />
                     <h4 className="font-bold text-slate-900 text-base">
-                      고객 응대용 표준 답변
+                      📘 가이드라인 규정 기반 답변
                     </h4>
                   </div>
                   <button
-                    onClick={() => handleCopyAnswer(currentResult.answer)}
+                    onClick={() =>
+                      copyToClipboard(currentResult.guideline_answer, true)
+                    }
                     className="flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
                   >
-                    {copied ? (
+                    {copiedGuideline ? (
                       <>
                         <Check className="w-3.5 h-3.5 text-emerald-600" />
                         <span className="text-emerald-700">복사완료</span>
@@ -286,89 +305,140 @@ export default function Home() {
                     ) : (
                       <>
                         <Copy className="w-3.5 h-3.5" />
-                        <span>답변 복사</span>
+                        <span>규정 답변 복사</span>
                       </>
                     )}
                   </button>
                 </div>
-                <div className="text-slate-800 text-sm leading-relaxed whitespace-pre-line flex-1 bg-blue-50/40 p-4 rounded-xl border border-blue-100/70">
-                  {currentResult.answer}
+
+                <div className="text-slate-800 text-sm leading-relaxed whitespace-pre-line flex-1 bg-blue-50/40 p-4 rounded-xl border border-blue-100/70 mb-4">
+                  {currentResult.guideline_answer}
+                </div>
+
+                {/* 가이드라인 원문 보기 토글 */}
+                <div className="pt-2 border-t border-slate-100">
+                  <button
+                    onClick={() => setShowEvidence(!showEvidence)}
+                    className="w-full flex items-center justify-between text-left text-xs font-semibold text-slate-600 hover:text-blue-800"
+                  >
+                    <span>
+                      📖 가이드라인 원문 조항 확인 ({currentResult.source_pages.join(", ")}p)
+                    </span>
+                    {showEvidence ? (
+                      <ChevronUp className="w-4 h-4 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-slate-400" />
+                    )}
+                  </button>
+                  {showEvidence && (
+                    <blockquote className="mt-2.5 p-3 bg-slate-50 rounded-xl border-l-4 border-blue-600 text-xs text-slate-700 leading-relaxed italic font-mono">
+                      {currentResult.guideline_evidence}
+                    </blockquote>
+                  )}
                 </div>
               </div>
 
-              {/* 2. 실무 및 장학생 처리 매뉴얼 */}
-              <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-slate-200 flex flex-col">
-                <div className="flex items-center space-x-2 text-emerald-700 mb-3 pb-2 border-b border-slate-100">
-                  <FileCheck className="w-5 h-5" />
-                  <h4 className="font-bold text-slate-900 text-base">
-                    행정 및 학생 처리 매뉴얼 (Action Items)
-                  </h4>
+              {/* 우측 카드: 💬 실제 상담 사례 기반 답변 */}
+              <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-emerald-200 flex flex-col">
+                <div className="flex items-center justify-between mb-3 pb-3 border-b border-emerald-100">
+                  <div className="flex items-center space-x-2 text-emerald-700">
+                    <MessageSquareText className="w-5 h-5" />
+                    <h4 className="font-bold text-slate-900 text-base">
+                      💬 실제 상담 사례 기반 답변
+                    </h4>
+                  </div>
+                  <button
+                    onClick={() =>
+                      copyToClipboard(currentResult.case_answer, false)
+                    }
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
+                  >
+                    {copiedCase ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-700">복사완료</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>사례 답변 복사</span>
+                      </>
+                    )}
+                  </button>
                 </div>
-                <div className="space-y-2.5 flex-1">
-                  {currentResult.manual.map((step, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-start gap-3 p-3 bg-emerald-50/40 border border-emerald-100 rounded-xl"
-                    >
-                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">
-                        {idx + 1}
-                      </span>
-                      <p className="text-xs sm:text-sm text-slate-800 font-medium leading-normal pt-0.5">
-                        {step}
-                      </p>
+
+                <div className="text-slate-800 text-sm leading-relaxed whitespace-pre-line flex-1 bg-emerald-50/40 p-4 rounded-xl border border-emerald-100/70 mb-4">
+                  {currentResult.case_answer}
+                </div>
+
+                {/* 매칭된 과거 실제 Q&A 레퍼런스 토글 */}
+                <div className="pt-2 border-t border-slate-100">
+                  <button
+                    onClick={() => setShowReferences(!showReferences)}
+                    className="w-full flex items-center justify-between text-left text-xs font-semibold text-emerald-800 hover:text-emerald-900"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <History className="w-3.5 h-3.5" />
+                      참고한 과거 유사 상담 내역 (Google Sheet DB {currentResult.case_references?.length || 0}건)
+                    </span>
+                    {showReferences ? (
+                      <ChevronUp className="w-4 h-4 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-slate-400" />
+                    )}
+                  </button>
+
+                  {showReferences && (
+                    <div className="mt-3 space-y-3">
+                      {currentResult.case_references && currentResult.case_references.length > 0 ? (
+                        currentResult.case_references.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between text-slate-500 font-medium">
+                              <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
+                                <Tag className="w-3 h-3" />
+                                {item.category} {item.subCategory ? `> ${item.subCategory}` : ""}
+                              </span>
+                              <span>{item.date}</span>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-slate-800">
+                                Q: {item.question.length > 120 ? item.question.slice(0, 120) + "..." : item.question}
+                              </p>
+                              <p className="text-slate-600 mt-1 pl-2 border-l-2 border-emerald-500">
+                                A: {item.answer.length > 150 ? item.answer.slice(0, 150) + "..." : item.answer}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-400 p-2">
+                          직접 매칭된 이전 상담 내역이 없습니다. (규정집 기준 응답 권장)
+                        </p>
+                      )}
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* 3. 가이드라인 원문 근거 (접기/펼치기) */}
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
-              <button
-                onClick={() => setShowEvidence(!showEvidence)}
-                className="w-full flex items-center justify-between text-left"
-              >
-                <div className="flex items-center space-x-2 text-slate-700">
-                  <BookOpen className="w-4 h-4 text-blue-700" />
-                  <span className="font-bold text-sm text-slate-900">
-                    가이드라인 원문 조항 확인하기 (PDF{" "}
-                    {currentResult.source_pages.join(", ")}페이지 발췌)
-                  </span>
-                </div>
-                {showEvidence ? (
-                  <ChevronUp className="w-4 h-4 text-slate-500" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-slate-500" />
-                )}
-              </button>
-
-              {showEvidence && (
-                <div className="mt-3 pt-3 border-t border-slate-100">
-                  <blockquote className="p-3 bg-slate-50 rounded-xl border-l-4 border-blue-600 text-xs text-slate-700 leading-relaxed italic font-mono">
-                    {currentResult.evidence}
-                  </blockquote>
-                </div>
-              )}
-            </div>
-
-            {/* 4. 문의처 안내 바 */}
+            {/* 하단 문의처 바 */}
             <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-600 gap-3">
               <div className="flex items-center gap-4 flex-wrap">
                 <span className="font-semibold text-slate-800 flex items-center gap-1">
-                  <Phone className="w-3.5 h-3.5 text-blue-600" /> 운영사무국:
-                  02-6958-1947
+                  <Phone className="w-3.5 h-3.5 text-blue-600" /> 운영사무국: 02-6958-1947
                 </span>
                 <span className="flex items-center gap-1">
-                  <Mail className="w-3.5 h-3.5 text-blue-600" /> 이메일:
-                  ondreamimpact@univ.me
+                  <Mail className="w-3.5 h-3.5 text-blue-600" /> 이메일: ondreamimpact@univ.me
                 </span>
                 <span className="flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-blue-600" /> 운영시간: 평일
-                  10:00~17:00
+                  <Clock className="w-3.5 h-3.5 text-blue-600" /> 운영시간: 평일 10:00~17:00
                 </span>
               </div>
               <span className="text-slate-500 text-[11px]">
-                ※ 장학생 본인 직접 문의 원칙 (학부모 대리 불가)
+                ※ 장학생 본인 직접 문의 원칙 (학부모 대리 접수 불가)
               </span>
             </div>
           </div>
@@ -384,14 +454,12 @@ export default function Home() {
               {history.slice(1).map((item, idx) => (
                 <div
                   key={idx}
-                  onClick={() => {
-                    setCurrentResult(item.result);
-                  }}
+                  onClick={() => setCurrentResult(item.result)}
                   className="bg-white p-3.5 rounded-xl border border-slate-200 hover:border-blue-400 hover:shadow-sm cursor-pointer transition flex items-center justify-between"
                 >
                   <div className="flex items-center space-x-3 truncate">
                     <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700">
-                      {item.result.source_pages.join(", ")}p
+                      {item.result.source_pages?.join(", ")}p
                     </span>
                     <span className="text-sm text-slate-800 truncate font-medium">
                       {item.question}
@@ -407,7 +475,7 @@ export default function Home() {
         )}
       </main>
 
-      {/* API Key 설정 모달 */}
+      {/* API Key 모달 */}
       {showKeyModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
@@ -418,9 +486,7 @@ export default function Home() {
               </h3>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed mb-4">
-              Google AI Studio에서 발급받은 API 키를 입력해 주세요. 입력하신
-              키는 브라우저 로컬 저장소에만 보관되며 안전하게 호출됩니다.
-              (Vercel에 배포할 때는 Vercel 환경 변수에 영구 등록됩니다.)
+              서버에 기본 API 키가 연동되어 있어 별도 입력 없이도 사용하실 수 있습니다. 필요 시 다른 API 키로 교체하여 테스트하실 수 있습니다.
             </p>
             <input
               type="password"
@@ -455,8 +521,7 @@ export default function Home() {
       {/* 푸터 */}
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
         <div className="max-w-6xl mx-auto px-4">
-          현대차 정몽구 스칼러십 장학생 가이드라인 CS Helper • 현대차 정몽구
-          재단 2026.07 개정안 기준
+          현대차 정몽구 스칼러십 장학생 가이드라인 CS Helper • 규정집 31p & 상담 기록 1,620건 DB 연계
         </div>
       </footer>
     </div>

@@ -1,5 +1,81 @@
 import { NextRequest, NextResponse } from "next/server";
 import guidelineData from "../../../../data/guidelineKnowledge.json";
+import historyDb from "../../../../data/csHistoryDatabase.json";
+
+// 한국어 조사 분리 및 키워드 추출 헬퍼
+function extractKeywords(query: string) {
+  const clean = query.replace(/[?.,!~()'"-]/g, " ");
+  const words = clean.split(/\s+/).filter((w) => w.length >= 2);
+  const keywords = new Set(words);
+
+  const suffixes = [
+    "으로",
+    "에서",
+    "에게",
+    "에도",
+    "로",
+    "를",
+    "을",
+    "이",
+    "가",
+    "은",
+    "는",
+    "도",
+    "의",
+    "에",
+    "와",
+    "과",
+    "하며",
+    "하고",
+  ];
+  for (const w of words) {
+    for (const s of suffixes) {
+      if (w.endsWith(s) && w.length - s.length >= 2) {
+        keywords.add(w.slice(0, -s.length));
+      }
+    }
+    if (w.includes("2저자")) {
+      keywords.add("2저자");
+      keywords.add("사사");
+    }
+    if (w.includes("1저자")) {
+      keywords.add("1저자");
+      keywords.add("사사");
+    }
+  }
+  return Array.from(keywords);
+}
+
+// 과거 상담 사례 검색 헬퍼 (키워드 매칭)
+function searchSimilarCases(query: string, topN = 4) {
+  const keywords = extractKeywords(query);
+
+  const scored = (historyDb as any[]).map((item) => {
+    let score = 0;
+    const textToSearch = `${item.category} ${item.subCategory} ${item.question} ${item.answer}`.toLowerCase();
+    const qLower = item.question.toLowerCase();
+
+    for (const kw of keywords) {
+      const k = kw.toLowerCase();
+      if (qLower.includes(k)) {
+        score += 6;
+      } else if (textToSearch.includes(k)) {
+        score += 3;
+      }
+    }
+
+    if (item.date && item.date.startsWith("2026")) score += 1.5;
+    else if (item.date && item.date.startsWith("2025")) score += 0.8;
+
+    return { item, score };
+  });
+
+  return scored
+    .filter((s) => s.score > 3)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topN)
+    .map((s) => s.item);
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,45 +93,51 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Gemini API 키가 설정되지 않았습니다. Vercel 환경 변수에 GEMINI_API_KEY를 등록하거나 상단 메뉴에서 키를 입력해 주세요.",
+            "Gemini API 키가 설정되지 않았습니다. Vercel 환경 변수에 등록하거나 상단 메뉴에서 키를 입력해 주세요.",
         },
         { status: 401 }
       );
     }
 
-    const systemInstruction = `
-너는 '현대차 정몽구 재단'의 「현대차 정몽구 스칼러십 장학생 가이드 라인 (2026년 7월 개정, 총 31페이지)」을 완벽히 숙지한 전문 CS 행정 및 장학생 상담 에이전트이다.
+    // 1. 과거 실제 상담 DB에서 가장 유사한 레퍼런스 케이스 추출
+    const matchedCases = searchSimilarCases(question, 4);
 
-아래에 제공되는 공식 가이드라인 지식 베이스를 바탕으로 장학생 또는 상담원의 질문에 답변하라.
-절대로 허위 정보를 지어내거나(Hallucination) 가이드라인에 없는 내용을 추측하지 말라.
-문서에 명시된 사실과 규정에 기반하여 정확하게 응답해야 한다.
+    const systemInstruction = `
+너는 '현대차 정몽구 재단'의 「현대차 정몽구 스칼러십 장학생 가이드 라인 (2026년 7월 개정, 총 31페이지)」과 「실제 장학생 상담 Q&A 기록(1,620건 DB)」을 완벽히 숙지한 최고 전문 CS 상담 에이전트이다.
+
+사용자의 문의에 대해 반드시 다음 [2가지 관점의 답변을 명확히 분리]하여 제시하라.
+(※ 실무 처리 매뉴얼 절차는 생성하지 마라.)
+
+1. [가이드라인 규정 기반 답변] (guideline_answer):
+   - 공식 가이드라인 규정집(31p)의 원칙, 자격 기준, 금액, 제출서류, 의무사항에 입각한 정석적인 답변.
+   - 반드시 해당 규정이 명시된 실제 페이지 번호(source_pages)와 해당 조항명(section), 원문 핵심 문장(guideline_evidence)을 정확히 명시하라.
+
+2. [실제 상담 사례 기반 답변] (case_answer):
+   - 함께 제공된 [실제 과거 상담 DB 레퍼런스]에 기반하여, 운영사무국이 실제로 유사한 케이스를 어떻게 유연하게 응대하고 처리했는지에 대한 실무형 답변.
+   - 예: "실제 사무국의 과거 처리 사례에 따르면, 1저자가 아니더라도 사사 기입이 가능한 경우 기입을 권장하고 있으며..." 처럼 실제 처리 관행을 장학생에게 알기 쉽게 안내.
 
 [공식 가이드라인 데이터]:
 ${JSON.stringify(guidelineData, null, 2)}
 
-[응답 규칙]:
-1. answer: 고객(장학생)에게 친절하고 정중하게 전달할 수 있는 공식 답변 문장입니다. 필요한 핵심 정보와 이유를 분명하게 작성하세요.
-2. manual: CS 담당자 또는 학생이 실제로 취해야 할 구체적인 실무 행정 절차를 1단계, 2단계 형태로 분리한 문자열 배열입니다.
-3. source_pages: 가이드라인 문서 내에서 해당 내용이 명시되어 있는 실제 페이지 번호(정수 배열, 예: [4, 30])입니다.
-4. section: 해당 내용이 위치한 목차/규정 항목명입니다 (예: "장학 프로그램 공통사항 > 학적 변동", "전공활동 장학금 > 국제 학술대회 장학금").
-5. evidence: 가이드라인 문서에 그대로 기재된 핵심 원문 문장 발췌입니다.
-6. contact: 해당 문의 처리 시 필요한 담당 부서명과 연락처/이메일.
+[검색된 실제 과거 상담 DB 레퍼런스 (총 ${matchedCases.length}건)]:
+${JSON.stringify(matchedCases, null, 2)}
 
-반드시 다음 JSON 규격으로만 응답하라. 마크다운 코드블록이나 불필요한 설명 없이 순수 JSON 객체만 반환하라.
+반드시 다음 JSON 형식으로만 응답하라. 마크다운(\`\`\`json) 없이 순수 JSON 문자열만 출력해야 한다.
 {
-  "answer": "...",
-  "manual": ["...", "..."],
-  "source_pages": [1, 2],
-  "section": "...",
-  "evidence": "...",
-  "contact": "..."
+  "guideline_answer": "공식 가이드라인 규정에 입각한 고객 응대 답변",
+  "source_pages": [5, 30],
+  "section": "규정 조항명 (예: 공통사항 > 학적 변동)",
+  "guideline_evidence": "가이드라인 원문 조항 핵심 문장 발췌",
+  "case_answer": "실제 과거 상담 사례 및 실무 관행을 반영한 실무형 답변",
+  "contact": "운영사무국 연락처 (02-6958-1947, ondreamimpact@univ.me / 평일 10~17시)"
 }
 `;
 
-    // 사용할 Gemini 최신 활성 모델 목록 (우선순위 순)
+    // 가장 안정적이고 응답률 높은 최신 모델 순서
     const candidateModels = [
-      "gemini-3.5-flash",
       "gemini-3.8-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.5-flash",
       "gemini-flash-latest",
     ];
 
@@ -87,30 +169,48 @@ ${JSON.stringify(guidelineData, null, 2)}
 
         if (!response.ok) {
           const errText = await response.text();
+          console.error(`Model ${modelName} returned status ${response.status}:`, errText);
           lastError = `${modelName} (${response.status}): ${errText}`;
-          continue; // 다음 후보 모델로 시도
+          continue;
         }
 
         const data = await response.json();
         let rawContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!rawContent) {
-          throw new Error("모델 응답에 내용이 없습니다.");
+          throw new Error("응답 내용이 비어 있습니다.");
         }
 
-        // 혹시 모를 마크다운 코드블록 제거
-        rawContent = rawContent.replace(/```json/g, "").replace(/```/g, "").trim();
+        rawContent = rawContent
+          .replace(/```json/g, "")
+          .replace(/```/g, "")
+          .trim();
         const parsed = JSON.parse(rawContent);
-        return NextResponse.json(parsed);
+
+        // 매칭된 실제 사례 레퍼런스 데이터도 클라이언트에 함께 전달
+        return NextResponse.json({
+          ...parsed,
+          case_references: matchedCases.map((c: any) => ({
+            id: c.id,
+            date: c.date,
+            category: c.category,
+            subCategory: c.subCategory,
+            question: c.question,
+            answer: c.answer,
+          })),
+        });
       } catch (e: any) {
+        console.error("Error in model attempt:", modelName, e);
         lastError = `${modelName} 처리 오류: ${e.message}`;
       }
     }
 
+    console.error("All models failed:", lastError);
     return NextResponse.json(
       { error: `Gemini API 호출에 실패했습니다. (${lastError})` },
       { status: 500 }
     );
   } catch (err: any) {
+    console.error("Fatal route error:", err);
     return NextResponse.json(
       { error: err.message || "서버 처리 중 오류가 발생했습니다." },
       { status: 500 }
