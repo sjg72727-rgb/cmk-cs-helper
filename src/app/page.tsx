@@ -142,14 +142,10 @@ export default function Home() {
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setShowKeyModal(true)}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                apiKey
-                  ? "bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
-                  : "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100"
-              }`}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
             >
               <Key className="w-3.5 h-3.5" />
-              <span>{apiKey ? "API 키 등록됨" : "API 키 설정"}</span>
+              <span>{apiKey ? "사용자 키 등록됨" : "API 자동 연결됨"}</span>
             </button>
 
             <a
